@@ -1,5 +1,4 @@
 # circles
-a generative art script
 ![alt text](https://github.com/masoudqashqai/circles/blob/master/imgs/circle_0.png)
 ![alt text](https://github.com/masoudqashqai/circles/blob/master/imgs/circle_1.png)
 ![alt text](https://github.com/masoudqashqai/circles/blob/master/imgs/circle_2.png)
