@@ -56,4 +56,4 @@ def generator(save_path: str):
 
 if __name__ == '__main__':
     for i in range(16):
-        generator(f"circle_{i}.png")
+        generator(f"imgs/circle_{i}.png")
