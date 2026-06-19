@@ -6,27 +6,34 @@
 # anti-aliased edges, plus a soft glow layer underneath each ring.
 
 import argparse
-import colorsys
 import os
 import random
 
 from PIL import Image, ImageDraw, ImageChops, ImageFilter
 
 
-def random_color():
-    """A vivid random RGB color across a wide, cool-leaning hue range.
+# A lush abstract-painting gradient: warm sunset melting into deep ocean.
+# Neighboring stops are harmonious, so any continuous slice flows beautifully.
+PALETTE = [
+    (255, 138, 40),   # orange
+    (255, 94, 86),    # coral
+    (232, 64, 120),   # rose
+    (188, 55, 168),   # magenta
+    (120, 60, 200),   # violet
+    (66, 72, 206),    # indigo / blue
+    (40, 128, 196),   # azure
+    (44, 176, 164),   # teal
+]
 
-    Hues sweep green -> teal -> cyan -> blue -> violet -> magenta -> pink,
-    skipping the warm yellows/oranges/reds, so the palette stays chill but
-    still goes wild from one image to the next.
-    """
-    h = random.uniform(0.33, 0.95)
-    s = random.uniform(0.55, 0.95)
-    v = random.uniform(0.8, 1.0)
 
-    float_rgb = colorsys.hsv_to_rgb(h, s, v)
-    rgb = [int(i * 255) for i in float_rgb]
-    return tuple(rgb)
+def palette_color(pos: float):
+    """Sample the painting palette at pos in [0, 1] (0 = orange, 1 = teal)."""
+    pos = max(0.0, min(1.0, pos))
+    scaled = pos * (len(PALETTE) - 1)
+    i = int(scaled)
+    if i >= len(PALETTE) - 1:
+        return PALETTE[-1]
+    return interpolate(PALETTE[i], PALETTE[i + 1], scaled - i)
 
 
 def draw_tube_ring(draw, center, radius, width, color):
@@ -66,8 +73,12 @@ def generator(save_path: str, target_size: int = 256, rings: int = 16):
     canvas_px = target_size * scale_factor
     padding = 4 * scale_factor
 
-    start_color = random_color()
-    end_color = random_color()
+    # Each image "catches" a smooth, continuous slice of the painting palette,
+    # so the rings melt from one beautiful color into the next.
+    lo = random.uniform(0.0, 0.55)
+    hi = lo + random.uniform(0.35, 1.0 - lo)
+    if random.random() < 0.5:
+        lo, hi = hi, lo  # flow inward or outward
 
     # Plain dark canvas, plus separate black layers for the crisp rings and
     # their glow (kept black so the blur stays clean before compositing).
@@ -85,7 +96,12 @@ def generator(save_path: str, target_size: int = 256, rings: int = 16):
         # the tube shading has room, with a thin space left between rings.
         radius = center - (padding + i * step)
         width = step * 0.55
-        circle_color = interpolate(start_color, end_color, random.random())
+
+        # Walk the palette slice from outer to inner, with a little jitter so
+        # it feels hand-painted rather than perfectly mechanical.
+        f = i / max(1, rings - 1)
+        pos = lo + (hi - lo) * f + random.uniform(-0.03, 0.03)
+        circle_color = palette_color(pos)
 
         draw_tube_ring(rings_draw, center, radius, width, circle_color)
         glow_draw.ellipse((center - radius, center - radius,
