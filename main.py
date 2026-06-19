@@ -14,13 +14,33 @@ from PIL import Image, ImageDraw, ImageChops, ImageFilter
 
 
 def random_color():
-    """A vivid random RGB color (full saturation + value in HSV)."""
-    h = random.random()
-    s = v = 1
+    """A cool, spacey random RGB color.
+
+    Hues are kept in the cyan -> blue -> violet -> magenta range so the
+    palette reads like deep space / a nebula rather than a rainbow.
+    """
+    h = random.uniform(0.5, 0.85)
+    s = random.uniform(0.55, 0.9)
+    v = random.uniform(0.75, 1.0)
 
     float_rgb = colorsys.hsv_to_rgb(h, s, v)
     rgb = [int(i * 255) for i in float_rgb]
     return tuple(rgb)
+
+
+def make_background(canvas_px: int):
+    """A dark navy canvas with a faint scattering of stars."""
+    bg = Image.new("RGB", (canvas_px, canvas_px), (3, 5, 16))
+    draw = ImageDraw.Draw(bg)
+
+    star_count = canvas_px // 12
+    for _ in range(star_count):
+        x = random.randint(0, canvas_px - 1)
+        y = random.randint(0, canvas_px - 1)
+        b = random.randint(40, 160)
+        size = random.choice((1, 1, 2))
+        draw.ellipse((x, y, x + size, y + size), fill=(b, b, min(255, b + 30)))
+    return bg
 
 
 def interpolate(start_color, end_color, factor: float):
@@ -39,23 +59,22 @@ def generator(save_path: str, target_size: int = 256, rings: int = 16):
     scale_factor = 4
     canvas_px = target_size * scale_factor
     padding = 4 * scale_factor
-    image_bg_color = (1, 1, 1)
 
     start_color = random_color()
     end_color = random_color()
 
-    # The two layers we build up: a blurred "glow" and the crisp rings.
-    image = Image.new("RGB", (canvas_px, canvas_px), image_bg_color)
-    glow = Image.new("RGB", (canvas_px, canvas_px), image_bg_color)
+    # A starry night-sky background, plus a separate black layer we draw the
+    # rings onto (kept black so the glow blur stays clean before compositing).
+    image = make_background(canvas_px)
+    rings_layer = Image.new("RGB", (canvas_px, canvas_px), (0, 0, 0))
+    rings_draw = ImageDraw.Draw(rings_layer)
+    glow = Image.new("RGB", (canvas_px, canvas_px), (0, 0, 0))
     glow_draw = ImageDraw.Draw(glow)
 
     # Evenly divide the canvas into `rings` nested ellipses.
     step = (canvas_px - 2 * padding) // (2 * rings)
 
     for i in range(rings):
-        overlay_image = Image.new("RGB", (canvas_px, canvas_px), image_bg_color)
-        overlay_draw = ImageDraw.Draw(overlay_image)
-
         # Position the ring and give the inner rings slightly thicker strokes
         # so the piece has a bit more depth toward the center.
         inset = padding + i * step
@@ -64,14 +83,13 @@ def generator(save_path: str, target_size: int = 256, rings: int = 16):
 
         circle_color = interpolate(start_color, end_color, random.random())
 
-        overlay_draw.ellipse(box, outline=circle_color, width=width)
+        rings_draw.ellipse(box, outline=circle_color, width=width)
         glow_draw.ellipse(box, outline=circle_color, width=width)
 
-        image = ImageChops.add(image, overlay_image)
-
-    # Soft halo: blur the ring layer and add it back underneath the sharp rings.
-    glow = glow.filter(ImageFilter.GaussianBlur(radius=scale_factor * 3))
-    image = ImageChops.add(image, glow)
+    # Composite: stars -> soft halo (subtle) -> crisp rings on top.
+    glow = glow.filter(ImageFilter.GaussianBlur(radius=scale_factor * 2))
+    image = ImageChops.add(image, glow, scale=2.2)  # scale>1 dims the glow
+    image = ImageChops.add(image, rings_layer)
 
     # Downscale to the target size (this is the step the original code dropped).
     image = image.resize((target_size, target_size), resample=Image.Resampling.LANCZOS)
