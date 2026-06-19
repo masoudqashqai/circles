@@ -7,7 +7,6 @@
 
 import argparse
 import colorsys
-import math
 import os
 import random
 
@@ -15,51 +14,39 @@ from PIL import Image, ImageDraw, ImageChops, ImageFilter
 
 
 def random_color():
-    """A cool, spacey random RGB color.
+    """A vivid random RGB color across a wide, cool-leaning hue range.
 
-    Hues are kept in the cyan -> blue -> violet -> magenta range so the
-    palette reads like deep space / a nebula rather than a rainbow.
+    Hues sweep green -> teal -> cyan -> blue -> violet -> magenta -> pink,
+    skipping the warm yellows/oranges/reds, so the palette stays chill but
+    still goes wild from one image to the next.
     """
-    h = random.uniform(0.5, 0.85)
-    s = random.uniform(0.55, 0.9)
-    v = random.uniform(0.75, 1.0)
+    h = random.uniform(0.33, 0.95)
+    s = random.uniform(0.55, 0.95)
+    v = random.uniform(0.8, 1.0)
 
     float_rgb = colorsys.hsv_to_rgb(h, s, v)
     rgb = [int(i * 255) for i in float_rgb]
     return tuple(rgb)
 
 
-def make_background(canvas_px: int, tints):
-    """Dark navy canvas with a soft color nebula and a scattering of stars.
+def draw_tube_ring(draw, center, radius, width, color):
+    """Draw one ring as a rounded 3D-looking tube.
 
-    The nebula is painted as a handful of big, overlapping blobs in colors
-    drawn from this image's own gradient, then blurred into soft clouds so the
-    background stays cohesive with the rings on top of it.
+    It's still flat 2D, but shading the stroke from dark edges up to a bright
+    highlight across its width makes each line read like a glossy wire/pipe.
     """
-    bg = Image.new("RGB", (canvas_px, canvas_px), (3, 5, 16))
+    dark = interpolate(color, (0, 0, 0), 0.65)
+    light = interpolate(color, (255, 255, 255), 0.6)
 
-    # --- nebula: blurred color clouds ---
-    nebula = Image.new("RGB", (canvas_px, canvas_px), (0, 0, 0))
-    nebula_draw = ImageDraw.Draw(nebula)
-    for _ in range(12):
-        tint = interpolate(tints[0], tints[1], random.random())
-        cx = random.randint(0, canvas_px)
-        cy = random.randint(0, canvas_px)
-        r = random.randint(canvas_px // 5, canvas_px // 2)
-        nebula_draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=tint)
-    nebula = nebula.filter(ImageFilter.GaussianBlur(radius=canvas_px // 8))
-    bg = ImageChops.add(bg, nebula, scale=4)  # scale>1 keeps the cloud faint
-
-    # --- stars ---
-    draw = ImageDraw.Draw(bg)
-    star_count = canvas_px // 10
-    for _ in range(star_count):
-        x = random.randint(0, canvas_px - 1)
-        y = random.randint(0, canvas_px - 1)
-        b = random.randint(40, 180)
-        size = random.choice((1, 1, 2))
-        draw.ellipse((x, y, x + size, y + size), fill=(b, b, min(255, b + 30)))
-    return bg
+    steps = max(3, int(width))
+    for s in range(steps + 1):
+        t = s / steps  # 0 = inner edge of the stroke, 1 = outer edge
+        rr = radius - width / 2 + t * width
+        # Bead profile: dark at both edges, bright highlight just inside center.
+        val = max(0.0, 1 - ((t - 0.42) / 0.5) ** 2)
+        shade = interpolate(dark, light, val)
+        draw.ellipse((center - rr, center - rr, center + rr, center + rr),
+                     outline=shade, width=2)
 
 
 def interpolate(start_color, end_color, factor: float):
@@ -82,50 +69,32 @@ def generator(save_path: str, target_size: int = 256, rings: int = 16):
     start_color = random_color()
     end_color = random_color()
 
-    # Starry nebula background, plus separate black layers for the crisp rings
-    # and their glow (kept black so the blur stays clean before compositing).
-    image = make_background(canvas_px, (start_color, end_color))
+    # Plain dark canvas, plus separate black layers for the crisp rings and
+    # their glow (kept black so the blur stays clean before compositing).
+    image = Image.new("RGB", (canvas_px, canvas_px), (8, 10, 20))
     rings_layer = Image.new("RGB", (canvas_px, canvas_px), (0, 0, 0))
     rings_draw = ImageDraw.Draw(rings_layer)
     glow = Image.new("RGB", (canvas_px, canvas_px), (0, 0, 0))
     glow_draw = ImageDraw.Draw(glow)
 
-    # Drift the ring centers along one random direction, more for the inner
-    # rings, so the nested circles lean into a 3D tunnel / wormhole.
-    angle = random.uniform(0, 2 * math.pi)
-    drift = canvas_px * random.uniform(0.04, 0.11)
-    dx, dy = drift * math.cos(angle), drift * math.sin(angle)
     center = canvas_px / 2
+    step = (canvas_px - 2 * padding) / (2 * rings)
 
-    # Evenly divide the canvas into `rings` nested ellipses.
-    step = (canvas_px - 2 * padding) // (2 * rings)
-
-    cx = cy = center
     for i in range(rings):
-        # Inner rings sit smaller and are nudged along the drift direction.
+        # Centered nested rings; stroke a little fatter than half the gap so
+        # the tube shading has room, with a thin space left between rings.
         radius = center - (padding + i * step)
-        t = i / max(1, rings - 1)
-        cx = center + dx * t
-        cy = center + dy * t
-        box = (cx - radius, cy - radius, cx + radius, cy + radius)
-
-        # Slightly thicker strokes toward the center for depth.
-        width = max(2, (rings - i) // 2) * scale_factor
+        width = step * 0.55
         circle_color = interpolate(start_color, end_color, random.random())
 
-        rings_draw.ellipse(box, outline=circle_color, width=width)
-        glow_draw.ellipse(box, outline=circle_color, width=width)
+        draw_tube_ring(rings_draw, center, radius, width, circle_color)
+        glow_draw.ellipse((center - radius, center - radius,
+                           center + radius, center + radius),
+                          outline=circle_color, width=int(width))
 
-    # A bright core glowing at the tunnel's vanishing point.
-    core_r = step * 1.2
-    core = interpolate(interpolate(start_color, end_color, 0.5), (255, 255, 255), 0.6)
-    rings_draw.ellipse((cx - core_r, cy - core_r, cx + core_r, cy + core_r), fill=core)
-    glow_draw.ellipse((cx - core_r * 2, cy - core_r * 2,
-                       cx + core_r * 2, cy + core_r * 2), fill=core)
-
-    # Composite: nebula+stars -> soft halo (subtle) -> crisp rings on top.
+    # Composite: dark canvas -> soft halo (limited) -> crisp tube rings on top.
     glow = glow.filter(ImageFilter.GaussianBlur(radius=scale_factor * 2))
-    image = ImageChops.add(image, glow, scale=2.2)  # scale>1 dims the glow
+    image = ImageChops.add(image, glow, scale=2.5)  # scale>1 dims the glow
     image = ImageChops.add(image, rings_layer)
 
     # Downscale to the target size (this is the step the original code dropped).
